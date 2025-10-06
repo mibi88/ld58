@@ -1,0 +1,19 @@
+                        GARBAGE COLLECTOR'S MINION
+                                by Mibi88
+
+A small game where you are an allocator and the garbage collector asks you to
+perform some tasks. Made for the Ludum Dare 58 (jam category).
+
+    DEPENDENCIES
+
+ - OpenGL 1.x
+ - SDL
+ - SDL_image
+
+    BUILDING
+
+Just run
+
+ $ ./build.sh
+
+This game is released under the Unlicense.
