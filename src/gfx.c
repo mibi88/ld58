@@ -5,6 +5,10 @@
 #include <GL/gl.h>
 #include <GL/glu.h>
 
+#if __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #define PI 3.141592653589793
 
 #define W 1200
@@ -92,6 +96,22 @@ int gfx_init(char *title) {
     return 0;
 }
 
+#if __EMSCRIPTEN__
+#define LOOP loop_fnc
+#define EXIT return
+#else
+#define LOOP loop
+#define EXIT break
+#endif
+
+#if __EMSCRIPTEN__
+static unsigned long int last;
+static unsigned long int delta;
+
+static int (*loop_fnc)(float delta);
+
+static void _loop(void) {
+#else
 void gfx_mainloop(int loop(float delta)) {
     unsigned long int last;
     unsigned long int delta;
@@ -99,82 +119,121 @@ void gfx_mainloop(int loop(float delta)) {
     last = SDL_GetTicks();
 
     do{
-        SDL_Event event;
-        unsigned long int new;
+#endif
+    SDL_Event event;
+    unsigned long int new;
 
-        int has_resized = 0;
-        int w, h;
+    int has_resized = 0;
+    int w, h;
 
-        memset(clicked, 0, GB_AMOUNT);
-        memset(released, 0, GB_AMOUNT);
+#if __EMSCRIPTEN__
+    double new_w = 0;
+    double new_h = 0;
+#endif
 
-        glClear(GL_COLOR_BUFFER_BIT);
+    memset(clicked, 0, GB_AMOUNT);
+    memset(released, 0, GB_AMOUNT);
 
-        while(SDL_PollEvent(&event)){
-            size_t i;
-            switch(event.type){
-                case SDL_KEYDOWN:
-                    for(i=0;i<GK_AMOUNT;i++){
-                        if(sdl_keys[i] == event.key.keysym.sym) keys[i] = 1;
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    while(SDL_PollEvent(&event)){
+        size_t i;
+
+#if __EMSCRIPTEN__
+        int old_w = w;
+        int old_h = h;
+#endif
+
+        switch(event.type){
+            case SDL_KEYDOWN:
+                for(i=0;i<GK_AMOUNT;i++){
+                    if(sdl_keys[i] == event.key.keysym.sym) keys[i] = 1;
+                }
+                break;
+            case SDL_KEYUP:
+                for(i=0;i<GK_AMOUNT;i++){
+                    if(sdl_keys[i] == event.key.keysym.sym) keys[i] = 0;
+                }
+                break;
+            case SDL_MOUSEMOTION:
+                mouse_x = event.motion.x;
+                mouse_y = event.motion.y;
+                break;
+            case SDL_MOUSEBUTTONDOWN:
+                for(i=0;i<GB_AMOUNT;i++){
+                    if(sdl_buttons[i] == event.button.button){
+                        buttons[i] = 1;
+                        clicked[i] = 1;
                     }
-                    break;
-                case SDL_KEYUP:
-                    for(i=0;i<GK_AMOUNT;i++){
-                        if(sdl_keys[i] == event.key.keysym.sym) keys[i] = 0;
+                }
+                break;
+            case SDL_MOUSEBUTTONUP:
+                for(i=0;i<GB_AMOUNT;i++){
+                    if(sdl_buttons[i] == event.button.button){
+                        buttons[i] = 0;
+                        released[i] = 1;
                     }
-                    break;
-                case SDL_MOUSEMOTION:
-                    mouse_x = event.motion.x;
-                    mouse_y = event.motion.y;
-                    break;
-                case SDL_MOUSEBUTTONDOWN:
-                    for(i=0;i<GB_AMOUNT;i++){
-                        if(sdl_buttons[i] == event.button.button){
-                            buttons[i] = 1;
-                            clicked[i] = 1;
-                        }
-                    }
-                    break;
-                case SDL_MOUSEBUTTONUP:
-                    for(i=0;i<GB_AMOUNT;i++){
-                        if(sdl_buttons[i] == event.button.button){
-                            buttons[i] = 0;
-                            released[i] = 1;
-                        }
-                    }
-                    break;
-                case SDL_VIDEORESIZE:
-                    /* It is kinda broken for some reason */
-                    w = event.resize.w;
-                    h = event.resize.h;
-                    has_resized = 1;
-                    break;
-                case SDL_QUIT:
-                    SDL_Quit();
-                    return;
-            }
+                }
+                break;
+#if !__EMSCRIPTEN__
+            case SDL_VIDEORESIZE:
+                /* It is kinda broken on Xorg for some reason */
+                w = event.resize.w;
+                h = event.resize.h;
+                has_resized = 1;
+                break;
+#endif
+            case SDL_QUIT:
+                SDL_Quit();
+                return;
         }
+    }
 
-        if(has_resized){
-            printf("%d, %d\n", w, h);
-            if(SDL_SetVideoMode(w, h, bpp, flags)){
-                on_resize(w, h);
-            }else{
-                fputs("Resizing failed!\n", stderr);
-            }
+#if __EMSCRIPTEN__
+    /* HACK: SDL_VIDEORESIZE isn't working for some reason */
+    emscripten_get_element_css_size("canvas", &new_w, &new_h);
+    printf("%lf, %lf\n", new_w, new_h);
+    if((int)new_w != w || (int)new_h != h){
+        w = new_w;
+        h = new_h;
+        has_resized = 1;
+    }
+#endif
+
+    if(has_resized){
+        printf("%d, %d\n", w, h);
+        if(SDL_SetVideoMode(w, h, bpp, flags)){
+            on_resize(w, h);
+        }else{
+            fputs("Resizing failed!\n", stderr);
         }
+    }
 
-        do{
-            new = SDL_GetTicks();
-            delta = new-last;
-        }while(delta < 16);
-        last = new;
+    do{
+        new = SDL_GetTicks();
+        delta = new-last;
+    }while(delta < 16);
+    last = new;
 
-        if(loop(delta/1e3)) break;
-        SDL_GL_SwapBuffers();
+    if(LOOP(delta/1e3)) EXIT;
 
+    SDL_GL_SwapBuffers();
+#if __EMSCRIPTEN__
+    return;
+}
+
+void gfx_mainloop(int loop(float delta)) {
+
+    last = SDL_GetTicks();
+
+    loop_fnc = loop;
+
+    emscripten_set_main_loop(_loop, 0, 0);
+}
+#else
     }while(1);
 }
+#endif
 
 int gfx_load_texture(GFXTexture *texture, char *file, int w, int h) {
     SDL_Surface *image;
